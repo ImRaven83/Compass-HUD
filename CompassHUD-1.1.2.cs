@@ -8,7 +8,7 @@ using EFT;
 using EFT.Interactive;
 using UnityEngine;
 
-[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "1.1.1")]
+[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "1.1.2")]
 public class CompassHUD : BaseUnityPlugin
 {
     public enum MarkerType
@@ -310,7 +310,7 @@ public class CompassHUD : BaseUnityPlugin
 
         Camera cam = Camera.current;
         if (cam != null)
-            cachedYaw = cam.transform.eulerAngles.y;
+            cachedYaw = Normalize(cam.transform.eulerAngles.y + 180f);
 
         if (Time.time - lastMarkerCheckTime > 1.0f)
         {
@@ -775,6 +775,7 @@ public class CompassHUD : BaseUnityPlugin
                 Vector3 dir = target.Position - pPos;
                 float ang = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
                 if (ang < 0) ang += 360f;
+                ang = Normalize(ang + 180f);
 
                 float da = Mathf.DeltaAngle(normYaw, ang);
                 if (Mathf.Abs(da) < closestDeltaAngle)
@@ -794,6 +795,7 @@ public class CompassHUD : BaseUnityPlugin
                 Vector3 dir = target.Position - pPos;
                 float ang = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
                 if (ang < 0) ang += 360f;
+                ang = Normalize(ang + 180f);
 
                 float da = Mathf.DeltaAngle(normYaw, ang);
                 if (Mathf.Abs(da) <= 40f)
@@ -857,6 +859,7 @@ public class CompassHUD : BaseUnityPlugin
                 Vector3 dirToTarget = target.Position - playerPos;
                 float angleToTarget = Mathf.Atan2(dirToTarget.x, dirToTarget.z) * Mathf.Rad2Deg;
                 if (angleToTarget < 0) angleToTarget += 360f;
+                angleToTarget = Normalize(angleToTarget + 180f);
 
                 float deltaAngle = Mathf.DeltaAngle(normYaw, angleToTarget);
 
