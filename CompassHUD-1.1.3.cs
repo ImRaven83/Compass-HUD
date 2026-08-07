@@ -218,10 +218,19 @@ public class CompassHUD : BaseUnityPlugin
                         var gwInstance = gameWorldInstanceProperty.GetValue(null, null);
                         if (gwInstance != null)
                         {
-                            var mainPlayerProp = gwInstance.GetType().GetProperty("MainPlayer") ?? gwInstance.GetType().GetProperty("YourPlayer");
+                            var gwType = gwInstance.GetType();
+                            var mainPlayerProp = gwType.GetProperty("MainPlayer") ?? gwType.GetProperty("YourPlayer");
                             if (mainPlayerProp != null)
                             {
                                 mainPlayer = mainPlayerProp.GetValue(gwInstance, null) as Player;
+                            }
+                            else
+                            {
+                                var mainPlayerField = gwType.GetField("MainPlayer") ?? gwType.GetField("YourPlayer");
+                                if (mainPlayerField != null)
+                                {
+                                    mainPlayer = mainPlayerField.GetValue(gwInstance) as Player;
+                                }
                             }
                         }
                     }
@@ -477,13 +486,13 @@ public class CompassHUD : BaseUnityPlugin
     {
         if (trigger == null) return null;
         var type = trigger.GetType();
-        var zoneIdField = type.GetField("ZoneId") ?? type.GetField("zoneId") ?? type.GetField("TriggerId") ?? type.GetField("triggerId");
+        var zoneIdField = type.GetField("ZoneId") ?? type.GetField("zoneId") ?? type.GetField("TriggerId") ?? type.GetField("triggerId") ?? type.GetField("Id") ?? type.GetField("id");
         if (zoneIdField != null)
         {
             return zoneIdField.GetValue(trigger)?.ToString();
         }
 
-        var zoneIdProp = type.GetProperty("ZoneId") ?? type.GetProperty("zoneId") ?? type.GetProperty("TriggerId") ?? type.GetProperty("triggerId");
+        var zoneIdProp = type.GetProperty("ZoneId") ?? type.GetProperty("zoneId") ?? type.GetProperty("TriggerId") ?? type.GetProperty("triggerId") ?? type.GetProperty("Id") ?? type.GetProperty("id");
         if (zoneIdProp != null)
         {
             return zoneIdProp.GetValue(trigger, null)?.ToString();
@@ -635,13 +644,13 @@ public class CompassHUD : BaseUnityPlugin
                     string tName = "Transit";
                     try
                     {
-                        var proxyField = comp.GetType().GetField("TransitProperties") ?? comp.GetType().GetField("Properties");
+                        var proxyField = comp.GetType().GetField("TransitProperties") ?? comp.GetType().GetField("Properties") ?? comp.GetType().GetField("parameters");
                         if (proxyField != null)
                         {
                             var props = proxyField.GetValue(comp);
                             if (props != null)
                             {
-                                var pInfo = props.GetType().GetProperty("Name");
+                                var pInfo = props.GetType().GetProperty("Name") ?? props.GetType().GetProperty("name");
                                 if (pInfo != null)
                                 {
                                     var nVal = pInfo.GetValue(props, null);
@@ -649,7 +658,7 @@ public class CompassHUD : BaseUnityPlugin
                                 }
                                 else
                                 {
-                                    var fInfo = props.GetType().GetField("Name");
+                                    var fInfo = props.GetType().GetField("Name") ?? props.GetType().GetField("name");
                                     if (fInfo != null)
                                     {
                                         var nVal = fInfo.GetValue(props);
