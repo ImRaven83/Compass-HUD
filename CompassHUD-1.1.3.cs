@@ -8,7 +8,7 @@ using EFT;
 using EFT.Interactive;
 using UnityEngine;
 
-[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "1.1.2")]
+[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "1.1.3")]
 public class CompassHUD : BaseUnityPlugin
 {
     public enum MarkerType
@@ -66,6 +66,7 @@ public class CompassHUD : BaseUnityPlugin
     private List<float> currentFrameMarkerX = new List<float>();
     private bool markersInitialized;
     private Player mainPlayer;
+    private bool fatalError;
 
     private void Awake()
     {
@@ -167,8 +168,17 @@ public class CompassHUD : BaseUnityPlugin
         return null;
     }
 
+    private void LogFatal(string context, Exception ex)
+    {
+        fatalError = true;
+        Logger.LogError($"Compass HUD disabled itself after an unexpected error in {context} (likely a game/API change). {ex}");
+    }
+
     private void Update()
     {
+        if (fatalError)
+            return;
+
         if (Time.time - lastCheckTime > 0.5f)
         {
             lastCheckTime = Time.time;
@@ -573,6 +583,18 @@ public class CompassHUD : BaseUnityPlugin
 
     private void RefreshActiveTargets()
     {
+        try
+        {
+            RefreshActiveTargetsInternal();
+        }
+        catch (Exception ex)
+        {
+            LogFatal(nameof(RefreshActiveTargets), ex);
+        }
+    }
+
+    private void RefreshActiveTargetsInternal()
+    {
         activeMarkers.Clear();
         if (!isInRaid || mainPlayer == null || !markersInitialized) return;
 
@@ -733,12 +755,24 @@ public class CompassHUD : BaseUnityPlugin
 
     private void OnGUI()
     {
-        if (!enabledCompass.Value || !isInRaid || Cursor.visible)
+        if (fatalError || !enabledCompass.Value || !isInRaid || Cursor.visible)
             return;
 
         if (Camera.current == null)
             return;
 
+        try
+        {
+            DrawCompassHUD();
+        }
+        catch (Exception ex)
+        {
+            LogFatal(nameof(OnGUI), ex);
+        }
+    }
+
+    private void DrawCompassHUD()
+    {
         float centerX = Screen.width / 2f;
         float width = 900f * scale.Value;
         bool markersActive = showExtractions.Value || showTransits.Value || showQuests.Value;
