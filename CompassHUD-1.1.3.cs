@@ -58,6 +58,7 @@ public class CompassHUD : BaseUnityPlugin
     private ConfigEntry<bool> independentMarkerSize;
     private ConfigEntry<float> markerScale;
     private ConfigEntry<float> compassYPosition;
+    private ConfigEntry<bool> labelsAboveTape;
 
     private List<MarkerTarget> activeMarkers = new List<MarkerTarget>();
     private List<ExfiltrationPoint> cachedExfils = new List<ExfiltrationPoint>();
@@ -85,6 +86,7 @@ public class CompassHUD : BaseUnityPlugin
         independentMarkerSize = Config.Bind("UI Markers", "Independent Marker Size", false, "Disable distance-based scaling for markers");
         markerScale = Config.Bind("UI Markers", "Marker Scale", 1.21f, "Scale factor for markers and icons");
         compassYPosition = Config.Bind("Appearance", "Vertical Position", 0.0f, new ConfigDescription("Vertical compass position: 0% at the top, 100% at the bottom", new AcceptableValueRange<float>(0.0f, 1.0f)));
+        labelsAboveTape = Config.Bind("Appearance", "Labels Above Tape", false, "Draw all compass text above the tape instead of below it, so the tape itself can sit flush against the bottom of the screen at 100% Vertical Position.");
 
         compassStyle = new GUIStyle();
         compassStyle.fontStyle = FontStyle.Bold;
@@ -817,8 +819,10 @@ public class CompassHUD : BaseUnityPlugin
         float yOffset = (markersActive ? 4f : 8f) * scale.Value;
         float height = (markersActive ? 75f : 56f) * scale.Value;
 
-        float maxHudHeight = height + 4f + 20f * scale.Value;
-        float minY = 6f;
+        bool flip = labelsAboveTape.Value;
+        float labelSpace = 24f * scale.Value;
+        float maxHudHeight = flip ? (height + 6f) : (height + 4f + 20f * scale.Value);
+        float minY = flip ? (labelSpace + 6f) : 6f;
         float maxY = Screen.height - maxHudHeight - 6f;
         float topY = Mathf.Lerp(minY, maxY, compassYPosition.Value);
 
@@ -914,7 +918,7 @@ public class CompassHUD : BaseUnityPlugin
             GUI.Label(new Rect(centerX - 150f * scale.Value, centralY, 300f * scale.Value, 40f * scale.Value), centralDegree, centralDegreeStyle);
         }
 
-        DrawCompassLinear(centerX, topY, width, height, normYaw, yOffset);
+        DrawCompassLinear(centerX, topY, width, height, normYaw, yOffset, flip);
 
         if (mainPlayer != null)
         {
@@ -985,7 +989,8 @@ public class CompassHUD : BaseUnityPlugin
                 GUIStyle subStyle = new GUIStyle(distanceStyle);
                 subStyle.fontSize = Mathf.RoundToInt(10f * dynamicScale);
                 subStyle.normal = new GUIStyleState { textColor = GUI.color };
-                GUI.Label(new Rect(x - 50f * scale.Value, iconY + iconSize + 1f, 100f * scale.Value, 16f * scale.Value), subDistStr, subStyle);
+                float subDistY = flip ? (iconY - 17f * scale.Value) : (iconY + iconSize + 1f);
+                GUI.Label(new Rect(x - 50f * scale.Value, subDistY, 100f * scale.Value, 16f * scale.Value), subDistStr, subStyle);
             }
         }
 
@@ -1007,7 +1012,8 @@ public class CompassHUD : BaseUnityPlugin
             bottomStyle.normal = new GUIStyleState { textColor = labelColor };
 
             string distStr = closestCenterTarget.Name + " [" + Mathf.RoundToInt(closestCenterTarget.CurrentDistance) + "m]";
-            GUI.Label(new Rect(centerX - 250f, topY + height + 4f, 500f, 20f * scale.Value), distStr, bottomStyle);
+            float bottomLabelY = flip ? (topY - labelSpace - 2f) : (topY + height + 4f);
+            GUI.Label(new Rect(centerX - 250f, bottomLabelY, 500f, 20f * scale.Value), distStr, bottomStyle);
         }
 
         GUI.color = oldColor;
@@ -1031,7 +1037,7 @@ public class CompassHUD : BaseUnityPlugin
         GUI.color = originalColor;
     }
 
-    private void DrawCompassLinear(float centerX, float topY, float width, float height, float yaw, float yOffset)
+    private void DrawCompassLinear(float centerX, float topY, float width, float height, float yaw, float yOffset, bool flip)
     {
         float halfWidth = width / 2f;
         float pixelsPerDegree = (width / 80f);
@@ -1086,7 +1092,9 @@ public class CompassHUD : BaseUnityPlugin
                 GUI.DrawTexture(new Rect(x - lineWidth / 2f, topY + yOffset, lineWidth, lineHeight), lineTexture);
             }
 
-            float textY = topY + yOffset + lineHeight + 2f * scale.Value;
+            float textY = flip
+                ? topY - (major ? 24f : 20f) * scale.Value
+                : topY + yOffset + lineHeight + 2f * scale.Value;
 
             if (isOverlappingMarker)
                 continue;
