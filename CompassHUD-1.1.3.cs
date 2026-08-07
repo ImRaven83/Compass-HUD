@@ -147,24 +147,42 @@ public class CompassHUD : BaseUnityPlugin
         {
             Path.Combine(BepInEx.Paths.GameRootPath, "SPT", "SPT_Data"),
             Path.Combine(BepInEx.Paths.GameRootPath, "SPT_Data"),
-            Path.Combine(BepInEx.Paths.GameRootPath, "..", "SPT", "SPT_Data")
+            Path.Combine(BepInEx.Paths.GameRootPath, "..", "SPT", "SPT_Data"),
+            Path.Combine(BepInEx.Paths.GameRootPath, "EscapeFromTarkov_Data"),
+            BepInEx.Paths.GameRootPath
         };
 
+        bool anyDirChecked = false;
         foreach (var basePath in possiblePaths)
         {
             if (!Directory.Exists(basePath)) continue;
+            anyDirChecked = true;
 
-            string[] files = Directory.GetFiles(basePath, filename, SearchOption.AllDirectories);
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(basePath, filename, SearchOption.AllDirectories);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning($"Compass HUD couldn't search {basePath} for {filename}: {ex.Message}");
+                continue;
+            }
+
             if (files.Length > 0)
             {
                 byte[] fileData = File.ReadAllBytes(files[0]);
                 Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                 if (UnityEngine.ImageConversion.LoadImage(texture, fileData))
                 {
+                    Logger.LogInfo($"Compass HUD loaded {filename} from {files[0]}");
                     return texture;
                 }
+                Logger.LogWarning($"Compass HUD found {filename} at {files[0]} but could not decode it as an image.");
             }
         }
+
+        Logger.LogWarning($"Compass HUD could not find {filename} under any known SPT data folder (searched: {string.Join(", ", possiblePaths)}; any existed: {anyDirChecked}). Extraction/quest markers will fall back to plain colored squares.");
         return null;
     }
 
@@ -897,7 +915,8 @@ public class CompassHUD : BaseUnityPlugin
             {
                 MarkerTarget target = activeMarkers[i];
                 Texture2D tex = (target.Type == MarkerType.Quest) ? (questTexture ?? extractionTexture) : extractionTexture;
-                if (tex == null) continue;
+                bool usingFallbackIcon = tex == null;
+                if (usingFallbackIcon) tex = lineTexture;
 
                 Vector3 dirToTarget = target.Position - playerPos;
                 float angleToTarget = Mathf.Atan2(dirToTarget.x, dirToTarget.z) * Mathf.Rad2Deg;
@@ -942,6 +961,10 @@ public class CompassHUD : BaseUnityPlugin
                 if (target.Type == MarkerType.Quest)
                 {
                     iconSize = 24f * dynamicScale;
+                }
+                if (usingFallbackIcon)
+                {
+                    iconSize *= 0.4f;
                 }
 
                 float iconY = (topY + 34f * scale.Value) - (iconSize / 2f);
