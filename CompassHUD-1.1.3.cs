@@ -287,6 +287,7 @@ public class CompassHUD : BaseUnityPlugin
             }
 
             cachedQuestTargets.Clear();
+            int placeItemCount = 0, questTriggerCount = 0, questZoneCount = 0, questLootCount = 0;
             if (showQuests.Value)
             {
                 var placeItemTriggerType = System.Type.GetType("EFT.Interactive.PlaceItemTrigger, Assembly-CSharp");
@@ -295,7 +296,7 @@ public class CompassHUD : BaseUnityPlugin
                     var triggers = GameObject.FindObjectsOfType(placeItemTriggerType);
                     foreach (var t in triggers)
                     {
-                        if (t is Component comp) cachedQuestTargets.Add(comp);
+                        if (t is Component comp) { cachedQuestTargets.Add(comp); placeItemCount++; }
                     }
                 }
 
@@ -305,7 +306,7 @@ public class CompassHUD : BaseUnityPlugin
                     var triggers = GameObject.FindObjectsOfType(questTriggerType);
                     foreach (var t in triggers)
                     {
-                        if (t is Component comp) cachedQuestTargets.Add(comp);
+                        if (t is Component comp) { cachedQuestTargets.Add(comp); questTriggerCount++; }
                     }
                 }
 
@@ -315,8 +316,12 @@ public class CompassHUD : BaseUnityPlugin
                     var zones = GameObject.FindObjectsOfType(questZoneType);
                     foreach (var z in zones)
                     {
-                        if (z is Component comp) cachedQuestTargets.Add(comp);
+                        if (z is Component comp) { cachedQuestTargets.Add(comp); questZoneCount++; }
                     }
+                }
+                else
+                {
+                    Logger.LogWarning("Compass HUD: EFT.Interactive.QuestZone type not found in this game build (safe to ignore if that's not a real type).");
                 }
 
                 var lootItemType = System.Type.GetType("EFT.Interactive.LootItem, Assembly-CSharp");
@@ -328,6 +333,7 @@ public class CompassHUD : BaseUnityPlugin
                         if (t is Component comp && IsQuestLootItem(comp))
                         {
                             cachedQuestTargets.Add(comp);
+                            questLootCount++;
                         }
                     }
                 }
@@ -335,6 +341,11 @@ public class CompassHUD : BaseUnityPlugin
 
             markersInitialized = true;
             RefreshActiveTargets();
+
+            Logger.LogInfo($"Compass HUD marker scan: ShowQuests={showQuests.Value}, exfils={cachedExfils.Count}, transits={cachedTransits.Count}, " +
+                $"quest triggers found (PlaceItemTrigger={placeItemCount}, QuestTrigger={questTriggerCount}, QuestZone={questZoneCount}, questLoot={questLootCount}), " +
+                $"activeMarkers after filtering: total={activeMarkers.Count}, extraction={activeMarkers.Count(m => m.Type == MarkerType.Extraction)}, " +
+                $"transit={activeMarkers.Count(m => m.Type == MarkerType.Transit)}, quest={activeMarkers.Count(m => m.Type == MarkerType.Quest)}");
         }
 
         if (UnityEngine.Input.GetKeyDown(toggleKey.Value))
