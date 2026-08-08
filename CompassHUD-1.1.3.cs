@@ -88,6 +88,8 @@ public class CompassHUD : BaseUnityPlugin
         compassYPosition = Config.Bind("Appearance", "Vertical Position", 0.0f, new ConfigDescription("Vertical compass position: 0% at the top, 100% at the bottom", new AcceptableValueRange<float>(0.0f, 1.0f)));
         labelsAboveTape = Config.Bind("Appearance", "Labels Above Tape", false, "Draw all compass text above the tape instead of below it, so the tape itself can sit flush against the bottom of the screen at 100% Vertical Position.");
 
+        Logger.LogInfo($"Compass HUD config loaded: LabelsAboveTape={labelsAboveTape.Value}, VerticalPosition={compassYPosition.Value}, Scale={scale.Value}, ConfigFile={Config.ConfigFilePath}");
+
         compassStyle = new GUIStyle();
         compassStyle.fontStyle = FontStyle.Bold;
         compassStyle.alignment = TextAnchor.MiddleCenter;
