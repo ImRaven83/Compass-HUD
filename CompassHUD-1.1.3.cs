@@ -8,7 +8,7 @@ using EFT;
 using EFT.Interactive;
 using UnityEngine;
 
-[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "1.1.2")]
+[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "1.1.3")]
 public class CompassHUD : BaseUnityPlugin
 {
     public enum MarkerType
@@ -58,6 +58,7 @@ public class CompassHUD : BaseUnityPlugin
     private ConfigEntry<bool> independentMarkerSize;
     private ConfigEntry<float> markerScale;
     private ConfigEntry<float> compassYPosition;
+    private ConfigEntry<bool> labelsAboveTape;
 
     private List<MarkerTarget> activeMarkers = new List<MarkerTarget>();
     private List<ExfiltrationPoint> cachedExfils = new List<ExfiltrationPoint>();
@@ -66,6 +67,7 @@ public class CompassHUD : BaseUnityPlugin
     private List<float> currentFrameMarkerX = new List<float>();
     private bool markersInitialized;
     private Player mainPlayer;
+    private bool fatalError;
 
     private void Awake()
     {
@@ -84,6 +86,9 @@ public class CompassHUD : BaseUnityPlugin
         independentMarkerSize = Config.Bind("UI Markers", "Independent Marker Size", false, "Disable distance-based scaling for markers");
         markerScale = Config.Bind("UI Markers", "Marker Scale", 1.21f, "Scale factor for markers and icons");
         compassYPosition = Config.Bind("Appearance", "Vertical Position", 0.0f, new ConfigDescription("Vertical compass position: 0% at the top, 100% at the bottom", new AcceptableValueRange<float>(0.0f, 1.0f)));
+        labelsAboveTape = Config.Bind("Appearance", "Labels Above Tape", false, "Draw all compass text above the tape instead of below it, so the tape itself can sit flush against the bottom of the screen at 100% Vertical Position.");
+
+        Logger.LogInfo($"Compass HUD config loaded: LabelsAboveTape={labelsAboveTape.Value}, VerticalPosition={compassYPosition.Value}, Scale={scale.Value}, ConfigFile={Config.ConfigFilePath}");
 
         compassStyle = new GUIStyle();
         compassStyle.fontStyle = FontStyle.Bold;
@@ -146,29 +151,56 @@ public class CompassHUD : BaseUnityPlugin
         {
             Path.Combine(BepInEx.Paths.GameRootPath, "SPT", "SPT_Data"),
             Path.Combine(BepInEx.Paths.GameRootPath, "SPT_Data"),
-            Path.Combine(BepInEx.Paths.GameRootPath, "..", "SPT", "SPT_Data")
+            Path.Combine(BepInEx.Paths.GameRootPath, "..", "SPT", "SPT_Data"),
+            Path.Combine(BepInEx.Paths.GameRootPath, "EscapeFromTarkov_Data"),
+            BepInEx.Paths.GameRootPath
         };
 
+        bool anyDirChecked = false;
         foreach (var basePath in possiblePaths)
         {
             if (!Directory.Exists(basePath)) continue;
+            anyDirChecked = true;
 
-            string[] files = Directory.GetFiles(basePath, filename, SearchOption.AllDirectories);
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(basePath, filename, SearchOption.AllDirectories);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning($"Compass HUD couldn't search {basePath} for {filename}: {ex.Message}");
+                continue;
+            }
+
             if (files.Length > 0)
             {
                 byte[] fileData = File.ReadAllBytes(files[0]);
                 Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                 if (UnityEngine.ImageConversion.LoadImage(texture, fileData))
                 {
+                    Logger.LogInfo($"Compass HUD loaded {filename} from {files[0]}");
                     return texture;
                 }
+                Logger.LogWarning($"Compass HUD found {filename} at {files[0]} but could not decode it as an image.");
             }
         }
+
+        Logger.LogWarning($"Compass HUD could not find {filename} under any known SPT data folder (searched: {string.Join(", ", possiblePaths)}; any existed: {anyDirChecked}). Extraction/quest markers will fall back to plain colored squares.");
         return null;
+    }
+
+    private void LogFatal(string context, Exception ex)
+    {
+        fatalError = true;
+        Logger.LogError($"Compass HUD disabled itself after an unexpected error in {context} (likely a game/API change). {ex}");
     }
 
     private void Update()
     {
+        if (fatalError)
+            return;
+
         if (Time.time - lastCheckTime > 0.5f)
         {
             lastCheckTime = Time.time;
@@ -208,10 +240,19 @@ public class CompassHUD : BaseUnityPlugin
                         var gwInstance = gameWorldInstanceProperty.GetValue(null, null);
                         if (gwInstance != null)
                         {
-                            var mainPlayerProp = gwInstance.GetType().GetProperty("MainPlayer") ?? gwInstance.GetType().GetProperty("YourPlayer");
+                            var gwType = gwInstance.GetType();
+                            var mainPlayerProp = gwType.GetProperty("MainPlayer") ?? gwType.GetProperty("YourPlayer");
                             if (mainPlayerProp != null)
                             {
                                 mainPlayer = mainPlayerProp.GetValue(gwInstance, null) as Player;
+                            }
+                            else
+                            {
+                                var mainPlayerField = gwType.GetField("MainPlayer") ?? gwType.GetField("YourPlayer");
+                                if (mainPlayerField != null)
+                                {
+                                    mainPlayer = mainPlayerField.GetValue(gwInstance) as Player;
+                                }
                             }
                         }
                     }
@@ -250,6 +291,7 @@ public class CompassHUD : BaseUnityPlugin
             }
 
             cachedQuestTargets.Clear();
+            int placeItemCount = 0, questTriggerCount = 0, questZoneCount = 0, questLootCount = 0;
             if (showQuests.Value)
             {
                 var placeItemTriggerType = System.Type.GetType("EFT.Interactive.PlaceItemTrigger, Assembly-CSharp");
@@ -258,7 +300,7 @@ public class CompassHUD : BaseUnityPlugin
                     var triggers = GameObject.FindObjectsOfType(placeItemTriggerType);
                     foreach (var t in triggers)
                     {
-                        if (t is Component comp) cachedQuestTargets.Add(comp);
+                        if (t is Component comp) { cachedQuestTargets.Add(comp); placeItemCount++; }
                     }
                 }
 
@@ -268,7 +310,7 @@ public class CompassHUD : BaseUnityPlugin
                     var triggers = GameObject.FindObjectsOfType(questTriggerType);
                     foreach (var t in triggers)
                     {
-                        if (t is Component comp) cachedQuestTargets.Add(comp);
+                        if (t is Component comp) { cachedQuestTargets.Add(comp); questTriggerCount++; }
                     }
                 }
 
@@ -278,8 +320,12 @@ public class CompassHUD : BaseUnityPlugin
                     var zones = GameObject.FindObjectsOfType(questZoneType);
                     foreach (var z in zones)
                     {
-                        if (z is Component comp) cachedQuestTargets.Add(comp);
+                        if (z is Component comp) { cachedQuestTargets.Add(comp); questZoneCount++; }
                     }
+                }
+                else
+                {
+                    Logger.LogWarning("Compass HUD: EFT.Interactive.QuestZone type not found in this game build (safe to ignore if that's not a real type).");
                 }
 
                 var lootItemType = System.Type.GetType("EFT.Interactive.LootItem, Assembly-CSharp");
@@ -291,6 +337,7 @@ public class CompassHUD : BaseUnityPlugin
                         if (t is Component comp && IsQuestLootItem(comp))
                         {
                             cachedQuestTargets.Add(comp);
+                            questLootCount++;
                         }
                     }
                 }
@@ -298,6 +345,11 @@ public class CompassHUD : BaseUnityPlugin
 
             markersInitialized = true;
             RefreshActiveTargets();
+
+            Logger.LogInfo($"Compass HUD marker scan: ShowQuests={showQuests.Value}, exfils={cachedExfils.Count}, transits={cachedTransits.Count}, " +
+                $"quest triggers found (PlaceItemTrigger={placeItemCount}, QuestTrigger={questTriggerCount}, QuestZone={questZoneCount}, questLoot={questLootCount}), " +
+                $"activeMarkers after filtering: total={activeMarkers.Count}, extraction={activeMarkers.Count(m => m.Type == MarkerType.Extraction)}, " +
+                $"transit={activeMarkers.Count(m => m.Type == MarkerType.Transit)}, quest={activeMarkers.Count(m => m.Type == MarkerType.Quest)}");
         }
 
         if (UnityEngine.Input.GetKeyDown(toggleKey.Value))
@@ -467,13 +519,13 @@ public class CompassHUD : BaseUnityPlugin
     {
         if (trigger == null) return null;
         var type = trigger.GetType();
-        var zoneIdField = type.GetField("ZoneId") ?? type.GetField("zoneId") ?? type.GetField("TriggerId") ?? type.GetField("triggerId");
+        var zoneIdField = type.GetField("ZoneId") ?? type.GetField("zoneId") ?? type.GetField("TriggerId") ?? type.GetField("triggerId") ?? type.GetField("Id") ?? type.GetField("id");
         if (zoneIdField != null)
         {
             return zoneIdField.GetValue(trigger)?.ToString();
         }
 
-        var zoneIdProp = type.GetProperty("ZoneId") ?? type.GetProperty("zoneId") ?? type.GetProperty("TriggerId") ?? type.GetProperty("triggerId");
+        var zoneIdProp = type.GetProperty("ZoneId") ?? type.GetProperty("zoneId") ?? type.GetProperty("TriggerId") ?? type.GetProperty("triggerId") ?? type.GetProperty("Id") ?? type.GetProperty("id");
         if (zoneIdProp != null)
         {
             return zoneIdProp.GetValue(trigger, null)?.ToString();
@@ -573,6 +625,18 @@ public class CompassHUD : BaseUnityPlugin
 
     private void RefreshActiveTargets()
     {
+        try
+        {
+            RefreshActiveTargetsInternal();
+        }
+        catch (Exception ex)
+        {
+            LogFatal(nameof(RefreshActiveTargets), ex);
+        }
+    }
+
+    private void RefreshActiveTargetsInternal()
+    {
         activeMarkers.Clear();
         if (!isInRaid || mainPlayer == null || !markersInitialized) return;
 
@@ -613,13 +677,13 @@ public class CompassHUD : BaseUnityPlugin
                     string tName = "Transit";
                     try
                     {
-                        var proxyField = comp.GetType().GetField("TransitProperties") ?? comp.GetType().GetField("Properties");
+                        var proxyField = comp.GetType().GetField("TransitProperties") ?? comp.GetType().GetField("Properties") ?? comp.GetType().GetField("parameters");
                         if (proxyField != null)
                         {
                             var props = proxyField.GetValue(comp);
                             if (props != null)
                             {
-                                var pInfo = props.GetType().GetProperty("Name");
+                                var pInfo = props.GetType().GetProperty("Name") ?? props.GetType().GetProperty("name");
                                 if (pInfo != null)
                                 {
                                     var nVal = pInfo.GetValue(props, null);
@@ -627,7 +691,7 @@ public class CompassHUD : BaseUnityPlugin
                                 }
                                 else
                                 {
-                                    var fInfo = props.GetType().GetField("Name");
+                                    var fInfo = props.GetType().GetField("Name") ?? props.GetType().GetField("name");
                                     if (fInfo != null)
                                     {
                                         var nVal = fInfo.GetValue(props);
@@ -733,20 +797,46 @@ public class CompassHUD : BaseUnityPlugin
 
     private void OnGUI()
     {
-        if (!enabledCompass.Value || !isInRaid || Cursor.visible)
+        if (fatalError || !enabledCompass.Value || !isInRaid || Cursor.visible)
             return;
 
         if (Camera.current == null)
             return;
 
+        try
+        {
+            DrawCompassHUD();
+        }
+        catch (Exception ex)
+        {
+            LogFatal(nameof(OnGUI), ex);
+        }
+    }
+
+    private void DrawCompassHUD()
+    {
         float centerX = Screen.width / 2f;
         float width = 900f * scale.Value;
         bool markersActive = showExtractions.Value || showTransits.Value || showQuests.Value;
         float yOffset = (markersActive ? 4f : 8f) * scale.Value;
         float height = (markersActive ? 75f : 56f) * scale.Value;
 
-        float maxHudHeight = height + 4f + 20f * scale.Value;
-        float minY = 6f;
+        bool flip = labelsAboveTape.Value;
+
+        // Flip-mode label stack: fixed, non-overlapping rows measured from topY upward,
+        // independent of icon scaling so a large centered marker can't collide with the
+        // rows above it. Row 1 (nearest the tape) = per-marker distance ("33m"), row 2 =
+        // tick degrees/letters, row 3 (topmost) = the closest-target summary line.
+        float rowGap = 3f * scale.Value;
+        float subDistRowHeight = 16f * scale.Value;
+        float tickRowHeight = 24f * scale.Value;
+        float bottomRowHeight = 20f * scale.Value;
+        float subDistTopOffset = rowGap + subDistRowHeight;
+        float tickTopOffset = subDistTopOffset + rowGap + tickRowHeight;
+        float bottomTopOffset = tickTopOffset + rowGap + bottomRowHeight;
+
+        float maxHudHeight = flip ? (height + 6f) : (height + 4f + 20f * scale.Value);
+        float minY = flip ? (bottomTopOffset + 6f) : 6f;
         float maxY = Screen.height - maxHudHeight - 6f;
         float topY = Mathf.Lerp(minY, maxY, compassYPosition.Value);
 
@@ -842,7 +932,7 @@ public class CompassHUD : BaseUnityPlugin
             GUI.Label(new Rect(centerX - 150f * scale.Value, centralY, 300f * scale.Value, 40f * scale.Value), centralDegree, centralDegreeStyle);
         }
 
-        DrawCompassLinear(centerX, topY, width, height, normYaw, yOffset);
+        DrawCompassLinear(centerX, topY, width, height, normYaw, yOffset, flip, tickTopOffset);
 
         if (mainPlayer != null)
         {
@@ -854,7 +944,8 @@ public class CompassHUD : BaseUnityPlugin
             {
                 MarkerTarget target = activeMarkers[i];
                 Texture2D tex = (target.Type == MarkerType.Quest) ? (questTexture ?? extractionTexture) : extractionTexture;
-                if (tex == null) continue;
+                bool usingFallbackIcon = tex == null;
+                if (usingFallbackIcon) tex = lineTexture;
 
                 Vector3 dirToTarget = target.Position - playerPos;
                 float angleToTarget = Mathf.Atan2(dirToTarget.x, dirToTarget.z) * Mathf.Rad2Deg;
@@ -900,6 +991,10 @@ public class CompassHUD : BaseUnityPlugin
                 {
                     iconSize = 24f * dynamicScale;
                 }
+                if (usingFallbackIcon)
+                {
+                    iconSize *= 0.4f;
+                }
 
                 float iconY = (topY + 34f * scale.Value) - (iconSize / 2f);
                 GUI.DrawTexture(new Rect(x - iconSize / 2f, iconY, iconSize, iconSize), tex);
@@ -908,7 +1003,8 @@ public class CompassHUD : BaseUnityPlugin
                 GUIStyle subStyle = new GUIStyle(distanceStyle);
                 subStyle.fontSize = Mathf.RoundToInt(10f * dynamicScale);
                 subStyle.normal = new GUIStyleState { textColor = GUI.color };
-                GUI.Label(new Rect(x - 50f * scale.Value, iconY + iconSize + 1f, 100f * scale.Value, 16f * scale.Value), subDistStr, subStyle);
+                float subDistY = flip ? (topY - subDistTopOffset) : (iconY + iconSize + 1f);
+                GUI.Label(new Rect(x - 50f * scale.Value, subDistY, 100f * scale.Value, 16f * scale.Value), subDistStr, subStyle);
             }
         }
 
@@ -930,7 +1026,8 @@ public class CompassHUD : BaseUnityPlugin
             bottomStyle.normal = new GUIStyleState { textColor = labelColor };
 
             string distStr = closestCenterTarget.Name + " [" + Mathf.RoundToInt(closestCenterTarget.CurrentDistance) + "m]";
-            GUI.Label(new Rect(centerX - 250f, topY + height + 4f, 500f, 20f * scale.Value), distStr, bottomStyle);
+            float bottomLabelY = flip ? (topY - bottomTopOffset) : (topY + height + 4f);
+            GUI.Label(new Rect(centerX - 250f, bottomLabelY, 500f, 20f * scale.Value), distStr, bottomStyle);
         }
 
         GUI.color = oldColor;
@@ -954,7 +1051,7 @@ public class CompassHUD : BaseUnityPlugin
         GUI.color = originalColor;
     }
 
-    private void DrawCompassLinear(float centerX, float topY, float width, float height, float yaw, float yOffset)
+    private void DrawCompassLinear(float centerX, float topY, float width, float height, float yaw, float yOffset, bool flip, float tickTopOffset)
     {
         float halfWidth = width / 2f;
         float pixelsPerDegree = (width / 80f);
@@ -1009,7 +1106,9 @@ public class CompassHUD : BaseUnityPlugin
                 GUI.DrawTexture(new Rect(x - lineWidth / 2f, topY + yOffset, lineWidth, lineHeight), lineTexture);
             }
 
-            float textY = topY + yOffset + lineHeight + 2f * scale.Value;
+            float textY = flip
+                ? topY - tickTopOffset
+                : topY + yOffset + lineHeight + 2f * scale.Value;
 
             if (isOverlappingMarker)
                 continue;
