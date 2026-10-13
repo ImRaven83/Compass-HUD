@@ -77,4 +77,21 @@
     </Reference>
   </ItemGroup>
 
+  <!--
+    Release zip laid out to extract straight into the SPT folder:
+      dotnet build -c Release -p:GameDir="C:/path/to/SPT" -t:Package
+  -->
+  <Target Name="Package" DependsOnTargets="Build">
+    <PropertyGroup>
+      <PackageStaging>$(BaseIntermediateOutputPath)package/</PackageStaging>
+      <PackageZip>$(OutDir)CompassHUD-$(Version)-SPT5.zip</PackageZip>
+    </PropertyGroup>
+    <RemoveDir Directories="$(PackageStaging)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PackageStaging)BepInEx/plugins/CompassHUD" />
+    <Copy SourceFiles="README.md;CHANGELOG.md;LICENSE.txt" DestinationFolder="$(PackageStaging)BepInEx/plugins/CompassHUD" />
+    <Delete Files="$(PackageZip)" />
+    <ZipDirectory SourceDirectory="$(PackageStaging)" DestinationFile="$(PackageZip)" />
+    <Message Importance="high" Text="Release package: $(PackageZip)" />
+  </Target>
+
 </Project>

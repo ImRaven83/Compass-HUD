@@ -212,6 +212,7 @@ public class CompassHUD
     {
         string[] possiblePaths = new string[]
         {
+            Path.GetDirectoryName(typeof(CompassHUD).Assembly.Location) ?? global::BepInEx.Paths.PluginPath,
             Path.Combine(global::BepInEx.Paths.GameRootPath, "SPT", "SPT_Data"),
             Path.Combine(global::BepInEx.Paths.GameRootPath, "SPT_Data"),
             Path.Combine(global::BepInEx.Paths.GameRootPath, "..", "SPT", "SPT_Data"),
