@@ -1,35 +1,79 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    SPT 5.0 (EFT 1.0) is IL2CPP: plugins target BepInEx 6 IL2CPP on .NET and reference the
+    interop assemblies BepInEx generates on first launch, not the game's Managed folder.
+    Build with: dotnet build -c Release -p:GameDir="C:/path/to/SPT"
+  -->
   <PropertyGroup>
-	  <TargetFramework>net48</TargetFramework>
-	  <LangVersion>latest</LangVersion>
-	  <Nullable>disable</Nullable>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>CompassHUD</AssemblyName>
+    <Version>2.0.0</Version>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GameDir Condition="'$(GameDir)' == ''">..\..\..</GameDir>
+    <BepInExCore>$(GameDir)/BepInEx/core</BepInExCore>
+    <Interop>$(GameDir)/BepInEx/interop</Interop>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Legacy Mono-era source kept for reference only. -->
+    <Compile Remove="CompassHUD-1.0.0.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(BepInExCore)/BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(BepInExCore)/BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(BepInExCore)/Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2Cppmscorlib">
+      <HintPath>$(Interop)/Il2Cppmscorlib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppSystem">
+      <HintPath>$(Interop)/Il2CppSystem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppSystem.Core">
+      <HintPath>$(Interop)/Il2CppSystem.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Assembly-CSharp">
-      <HintPath>..\..\..\..\..\..\Assembly-CSharp.dll</HintPath>
+      <HintPath>$(Interop)/Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
     </Reference>
-    <Reference Include="BepInEx">
-      <HintPath>..\..\..\..\..\..\BepInEx.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine">
-      <HintPath>..\..\..\..\..\..\UnityEngine.dll</HintPath>
+    <Reference Include="Comfort">
+      <HintPath>$(Interop)/Comfort.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>..\..\..\..\..\..\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(Interop)/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.ImageConversionModule">
-      <HintPath>..\..\..\..\..\..\UnityEngine.ImageConversionModule.dll</HintPath>
+      <HintPath>$(Interop)/UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>..\..\..\..\..\..\UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath>$(Interop)/UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>..\..\..\..\..\..\UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath>$(Interop)/UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>..\..\..\..\..\..\UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>$(Interop)/UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
   </ItemGroup>
 
