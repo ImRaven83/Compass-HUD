@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -10,7 +9,6 @@ using BepInEx.Unity.IL2CPP;
 using Comfort.Common;
 using EFT;
 using EFT.Interactive;
-using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.Injection;
 using UnityEngine;
 
@@ -64,10 +62,8 @@ public class CompassHUD
         public string Name;
     }
 
-    private const BindingFlags InstanceFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-
     // TriggerWithId subclasses that mark quest objectives; everything else (experience triggers etc.) is ignored.
-    private static readonly HashSet<string> QuestTriggerTypeNames = new HashSet<string> { "PlaceItemTrigger", "QuestTrigger", "QuestZone" };
+    private static readonly HashSet<string> QuestTriggerTypeNames = new HashSet<string> { "PlaceItemTrigger", "QuestTrigger" };
 
     public static CompassHUD Instance { get; private set; }
 
@@ -86,16 +82,12 @@ public class CompassHUD
     private Texture2D extractionTexture;
     private Texture2D questTexture;
     private bool resourcesCreated;
-    private Type transitType;
     private bool isInRaid;
     private bool localeIsRussian;
     private float lastCheckTime;
     private float lastMarkerCheckTime;
     private float raidStartTime;
     private float cachedYaw;
-
-    private MethodInfo localizedMethod;
-    private bool localizedSearched;
 
     private ConfigEntry<bool> enabledCompass;
     private ConfigEntry<bool> showDegrees;
@@ -116,7 +108,7 @@ public class CompassHUD
 
     private List<MarkerTarget> activeMarkers = new List<MarkerTarget>();
     private List<ExfiltrationPoint> cachedExfils = new List<ExfiltrationPoint>();
-    private List<Component> cachedTransits = new List<Component>();
+    private List<TransitPoint> cachedTransits = new List<TransitPoint>();
     private List<TriggerWithId> cachedQuestTriggers = new List<TriggerWithId>();
     private List<LootItem> cachedQuestLoot = new List<LootItem>();
     private List<float> currentFrameMarkerX = new List<float>();
@@ -156,12 +148,6 @@ public class CompassHUD
         labelsAboveTape = Config.Bind("Appearance", "Labels Above Tape", false, "Draw all compass text above the tape instead of below it, so the tape itself can sit flush against the bottom of the screen at 100% Vertical Position.");
 
         Logger.LogInfo($"Compass HUD config loaded: LabelsAboveTape={labelsAboveTape.Value}, VerticalPosition={compassYPosition.Value}, Scale={scale.Value}, ConfigFile={Config.ConfigFilePath}");
-
-        transitType = Type.GetType("EFT.Interactive.TransitPoint, Assembly-CSharp");
-        if (transitType == null)
-        {
-            Logger.LogWarning("Compass HUD: EFT.Interactive.TransitPoint type not found in this game build; transit markers are unavailable.");
-        }
     }
 
     // Unity objects are created on the first frame rather than in Load, which runs before the engine is fully up.
@@ -226,11 +212,11 @@ public class CompassHUD
     {
         string[] possiblePaths = new string[]
         {
-            Path.Combine(Paths.GameRootPath, "SPT", "SPT_Data"),
-            Path.Combine(Paths.GameRootPath, "SPT_Data"),
-            Path.Combine(Paths.GameRootPath, "..", "SPT", "SPT_Data"),
-            Path.Combine(Paths.GameRootPath, "EscapeFromTarkov_Data"),
-            Paths.GameRootPath
+            Path.Combine(global::BepInEx.Paths.GameRootPath, "SPT", "SPT_Data"),
+            Path.Combine(global::BepInEx.Paths.GameRootPath, "SPT_Data"),
+            Path.Combine(global::BepInEx.Paths.GameRootPath, "..", "SPT", "SPT_Data"),
+            Path.Combine(global::BepInEx.Paths.GameRootPath, "EscapeFromTarkov_Data"),
+            global::BepInEx.Paths.GameRootPath
         };
 
         bool anyDirChecked = false;
@@ -274,107 +260,16 @@ public class CompassHUD
         Logger.LogError($"Compass HUD disabled itself after an unexpected error in {context} (likely a game/API change). {ex}");
     }
 
-    // Reads a property or field by name. IL2CPP interop exposes game fields as properties, so both are tried.
-    private static object GetMember(object obj, params string[] names)
-    {
-        if (obj == null) return null;
-        var type = obj.GetType();
-        foreach (var name in names)
-        {
-            var prop = type.GetProperty(name, InstanceFlags);
-            if (prop != null && prop.GetIndexParameters().Length == 0)
-                return prop.GetValue(obj, null);
-
-            var field = type.GetField(name, InstanceFlags);
-            if (field != null)
-                return field.GetValue(obj);
-        }
-        return null;
-    }
-
-    // EFT's string.Localized() extension, located by shape so it survives the class it lives on being renamed.
-    private string Localize(string key)
+    private static string Localize(string key)
     {
         if (string.IsNullOrEmpty(key)) return key;
-
-        if (!localizedSearched)
-        {
-            localizedSearched = true;
-            localizedMethod = FindLocalizedMethod();
-            if (localizedMethod != null)
-                Logger.LogInfo($"Compass HUD using {localizedMethod.DeclaringType?.FullName}.{localizedMethod.Name} for localization.");
-            else
-                Logger.LogWarning("Compass HUD could not find EFT's Localized() helper; names will be shown unlocalized.");
-        }
-
-        if (localizedMethod == null) return key;
-
         try
         {
-            var parameters = localizedMethod.GetParameters();
-            var args = new object[parameters.Length];
-            args[0] = key;
-            for (int i = 1; i < parameters.Length; i++)
-            {
-                var p = parameters[i];
-                if (p.HasDefaultValue && p.DefaultValue != DBNull.Value)
-                    args[i] = p.DefaultValue;
-                else
-                    args[i] = p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType) : null;
-            }
-            return localizedMethod.Invoke(null, args) as string ?? key;
+            return LocalizationExtensions.Localized(key, (string)null) ?? key;
         }
         catch
         {
             return key;
-        }
-    }
-
-    private MethodInfo FindLocalizedMethod()
-    {
-        try
-        {
-            Type[] types;
-            try
-            {
-                types = typeof(GameWorld).Assembly.GetTypes();
-            }
-            catch (ReflectionTypeLoadException ex)
-            {
-                types = ex.Types.Where(t => t != null).ToArray();
-            }
-
-            MethodInfo best = null;
-            foreach (var type in types)
-            {
-                if (!type.IsAbstract || !type.IsSealed) continue;
-
-                MethodInfo[] methods;
-                try
-                {
-                    methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                foreach (var method in methods)
-                {
-                    if (method.Name != "Localized" || method.ReturnType != typeof(string) || method.IsGenericMethodDefinition) continue;
-                    var parameters = method.GetParameters();
-                    if (parameters.Length == 0 || parameters[0].ParameterType != typeof(string)) continue;
-                    if (parameters.Skip(1).Any(p => p.ParameterType.IsByRef)) continue;
-                    if (best == null || parameters.Length < best.GetParameters().Length)
-                        best = method;
-                }
-            }
-            return best;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning($"Compass HUD failed while searching for Localized(): {ex.Message}");
-            return null;
         }
     }
 
@@ -490,21 +385,16 @@ public class CompassHUD
         cachedExfils = GetEligibleExfils(world);
 
         cachedTransits.Clear();
-        if (transitType != null)
+        try
         {
-            try
+            foreach (var transit in UnityEngine.Object.FindObjectsOfType<TransitPoint>())
             {
-                var transits = UnityEngine.Object.FindObjectsOfType(Il2CppType.From(transitType));
-                foreach (var t in transits)
-                {
-                    var comp = t?.TryCast<Component>();
-                    if (comp != null) cachedTransits.Add(comp);
-                }
+                if (transit != null) cachedTransits.Add(transit);
             }
-            catch (Exception ex)
-            {
-                Logger.LogWarning($"Compass HUD failed to scan transit points: {ex.Message}");
-            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Compass HUD failed to scan transit points: {ex.Message}");
         }
 
         cachedQuestTriggers.Clear();
@@ -622,16 +512,10 @@ public class CompassHUD
             var item = lootItem.Item;
             if (item != null)
             {
-                string rawName = GetMember(item, "Name", "name")?.ToString();
-                if (!string.IsNullOrEmpty(rawName))
+                string name = item.LocalizedName();
+                if (!string.IsNullOrEmpty(name))
                 {
-                    return Localize(rawName);
-                }
-
-                string rawShort = GetMember(item, "ShortName", "shortName")?.ToString();
-                if (!string.IsNullOrEmpty(rawShort))
-                {
-                    return Localize(rawShort);
+                    return name;
                 }
             }
         }
@@ -649,10 +533,8 @@ public class CompassHUD
             var controller = world.ExfiltrationController;
             if (controller != null)
             {
-                var eligiblePointsMethod = controller.GetType().GetMethod("EligiblePoints", new Type[] { typeof(Profile) })
-                    ?? controller.GetType().GetMethod("GetEligiblePoints", new Type[] { typeof(Profile) });
-
-                if (eligiblePointsMethod != null && eligiblePointsMethod.Invoke(controller, new object[] { mainPlayer.Profile }) is IEnumerable<ExfiltrationPoint> points)
+                var points = controller.EligiblePoints(mainPlayer.Profile);
+                if (points != null)
                 {
                     result.AddRange(points.Where(p => p != null));
                 }
@@ -668,23 +550,20 @@ public class CompassHUD
             try
             {
                 var allExfils = UnityEngine.Object.FindObjectsOfType<ExfiltrationPoint>();
-                string localEntryPoint = (GetMember(GetMember(mainPlayer.Profile, "Info"), "EntryPoint") as string)?.ToLower();
+                string localEntryPoint = mainPlayer.Profile.Info?.EntryPoint?.ToLower();
                 bool isScav = mainPlayer.Profile.Side == EPlayerSide.Savage;
 
                 foreach (var point in allExfils)
                 {
                     if (point == null || !point.gameObject.activeInHierarchy) continue;
 
-                    bool isScavPoint = point.GetIl2CppType().Name == "ScavExfiltrationPoint";
+                    bool isScavPoint = point.TryCast<ScavExfiltrationPoint>() != null;
                     if (isScav != isScavPoint) continue;
 
                     string statusStr = point.Status.ToString();
                     if (statusStr == "NotPresent" || statusStr == "Unknown") continue;
 
-                    var eligibleMethod = point.GetType().GetMethod("EligibleForUser", new Type[] { typeof(Player) });
-                    if (eligibleMethod != null && eligibleMethod.Invoke(point, new object[] { mainPlayer }) is bool eligible && !eligible) continue;
-
-                    var entryPoints = GetMember(point, "EligibleEntryPoints") as IEnumerable<string>;
+                    var entryPoints = point.EligibleEntryPoints;
                     if (!string.IsNullOrEmpty(localEntryPoint) && entryPoints != null && entryPoints.Any())
                     {
                         if (!entryPoints.Any(ep => ep != null && ep.ToLower() == localEntryPoint)) continue;
@@ -702,19 +581,15 @@ public class CompassHUD
         return result;
     }
 
-    private string GetTransitName(Component comp)
+    private static string GetTransitName(TransitPoint transit)
     {
-        string tName = "Transit";
         try
         {
-            // The cached reference is a plain Component wrapper; rewrap it as TransitPoint to see its members.
-            object typed = Activator.CreateInstance(transitType, comp.Pointer);
-            var props = GetMember(typed, "TransitProperties", "Properties", "parameters");
-            var nVal = GetMember(props, "Name", "name");
-            if (nVal != null) tName = nVal.ToString();
+            string name = transit.parameters?.name;
+            if (!string.IsNullOrEmpty(name)) return name;
         }
         catch { }
-        return tName;
+        return "Transit";
     }
 
     private void RefreshActiveTargets()
@@ -765,15 +640,15 @@ public class CompassHUD
 
         if (showTransits.Value)
         {
-            foreach (var comp in cachedTransits)
+            foreach (var transit in cachedTransits)
             {
-                if (comp != null && comp.gameObject.activeInHierarchy)
+                if (transit != null && transit.gameObject.activeInHierarchy)
                 {
                     activeMarkers.Add(new MarkerTarget
                     {
-                        Position = comp.transform.position,
+                        Position = transit.transform.position,
                         Type = MarkerType.Transit,
-                        Name = LocalizeAndCleanName(GetTransitName(comp), comp.gameObject.name, true)
+                        Name = LocalizeAndCleanName(GetTransitName(transit), transit.gameObject.name, true)
                     });
                 }
             }
