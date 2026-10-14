@@ -6,10 +6,10 @@ Adds a compass tape to the screen during a raid, with optional extraction, trans
 
 | Compass HUD | SPT | Loader |
 |---|---|---|
-| 2.0.0 | 5.0 (EFT 1.0, IL2CPP) | BepInEx 6 IL2CPP (ships with SPT) |
+| 2.0.x | 5.0 (EFT 1.0, IL2CPP) | BepInEx 6 IL2CPP (ships with SPT) |
 | 1.1.3 | 4.1.x | BepInEx 5 (Mono) |
 
-SPT 5.0 moved to the IL2CPP build of EFT, so 1.x does not load on 5.0 and 2.0.0 does not load on 4.x.
+SPT 5.0 moved to the IL2CPP build of EFT, so 1.x does not load on 5.0 and 2.0.x does not load on 4.x.
 
 ## Install
 
@@ -55,7 +55,7 @@ Launch the game once so BepInEx generates `BepInEx/interop`, then:
 
 ```
 dotnet build -c Release -p:GameDir="C:/path/to/SPT"              # bin/Release/CompassHUD.dll
-dotnet build -c Release -p:GameDir="C:/path/to/SPT" -t:Package   # bin/Release/CompassHUD-2.0.0-SPT5.zip
+dotnet build -c Release -p:GameDir="C:/path/to/SPT" -t:Package   # bin/Release/CompassHUD-2.0.1-SPT5.zip
 ```
 
 Requires the .NET 10 SDK.

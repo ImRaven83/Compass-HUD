@@ -9,13 +9,14 @@ using BepInEx.Unity.IL2CPP;
 using Comfort.Common;
 using EFT;
 using EFT.Interactive;
+using EFT.Quests;
 using Il2CppInterop.Runtime.Injection;
 using UnityEngine;
 
 // SPT 5.0 runs EFT 1.0 on IL2CPP, so this is a BepInEx 6 IL2CPP plugin: the plugin itself is a
 // BasePlugin, Unity callbacks come from an injected MonoBehaviour, and all HUD state lives in the
 // plain managed CompassHUD class so none of it has to cross into IL2CPP.
-[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "2.0.0")]
+[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "2.0.1")]
 public class CompassHUDPlugin : BasePlugin
 {
     public override void Load()
@@ -62,9 +63,6 @@ public class CompassHUD
         public string Name;
     }
 
-    // TriggerWithId subclasses that mark quest objectives; everything else (experience triggers etc.) is ignored.
-    private static readonly HashSet<string> QuestTriggerTypeNames = new HashSet<string> { "PlaceItemTrigger", "QuestTrigger" };
-
     public static CompassHUD Instance { get; private set; }
 
     private readonly ManualLogSource Logger;
@@ -110,9 +108,9 @@ public class CompassHUD
     private List<ExfiltrationPoint> cachedExfils = new List<ExfiltrationPoint>();
     private List<TransitPoint> cachedTransits = new List<TransitPoint>();
     private List<TriggerWithId> cachedQuestTriggers = new List<TriggerWithId>();
-    private List<LootItem> cachedQuestLoot = new List<LootItem>();
     private List<float> currentFrameMarkerX = new List<float>();
     private bool markersInitialized;
+    private bool questReadFailureLogged;
     private Player mainPlayer;
     private bool fatalError;
 
@@ -134,16 +132,16 @@ public class CompassHUD
         showDegrees = Config.Bind("General", "Show Degrees", true, "Show heading degrees on tape");
         showLetters = Config.Bind("General", "Show Letters", true, "Show heading letters on tape");
         language = Config.Bind("General", "Language", 0, "0 = Auto, 1 = English, 2 = Russian");
-        scale = Config.Bind("Appearance", "Scale", 1.0f, "Compass scale");
-        opacity = Config.Bind("Appearance", "Opacity", 0.9f, "Compass opacity");
+        scale = Config.Bind("Appearance", "Scale", 1.0f, new ConfigDescription("Compass scale", new AcceptableValueRange<float>(0.25f, 3.0f)));
+        opacity = Config.Bind("Appearance", "Opacity", 0.9f, new ConfigDescription("Compass opacity", new AcceptableValueRange<float>(0.0f, 1.0f)));
         toggleKey = Config.Bind("General", "Toggle Hotkey", KeyCode.F8, "Button to toggle compass visibility");
-        roundedness = Config.Bind("Appearance", "Roundedness", 1.0f, "How strongly the sides fade out for 3D effect");
+        roundedness = Config.Bind("Appearance", "Roundedness", 1.0f, new ConfigDescription("How strongly the sides fade out for 3D effect", new AcceptableValueRange<float>(0.0f, 10.0f)));
         showCentralIndicator = Config.Bind("General", "Show Central Indicator", true, "Show the central indicator box");
         showExtractions = Config.Bind("UI Markers", "Show Extractions", false, "Show extraction markers on compass");
         showTransits = Config.Bind("UI Markers", "Show Transits", false, "Show map transit points on compass");
         showQuests = Config.Bind("UI Markers", "Show Quests", false, "Show quest targets on compass");
         independentMarkerSize = Config.Bind("UI Markers", "Independent Marker Size", false, "Disable distance-based scaling for markers");
-        markerScale = Config.Bind("UI Markers", "Marker Scale", 1.21f, "Scale factor for markers and icons");
+        markerScale = Config.Bind("UI Markers", "Marker Scale", 1.21f, new ConfigDescription("Scale factor for markers and icons", new AcceptableValueRange<float>(0.25f, 3.0f)));
         compassYPosition = Config.Bind("Appearance", "Vertical Position", 0.0f, new ConfigDescription("Vertical compass position: 0% at the top, 100% at the bottom", new AcceptableValueRange<float>(0.0f, 1.0f)));
         labelsAboveTape = Config.Bind("Appearance", "Labels Above Tape", false, "Draw all compass text above the tape instead of below it, so the tape itself can sit flush against the bottom of the screen at 100% Vertical Position.");
 
@@ -213,6 +211,7 @@ public class CompassHUD
         string[] possiblePaths = new string[]
         {
             Path.GetDirectoryName(typeof(CompassHUD).Assembly.Location) ?? global::BepInEx.Paths.PluginPath,
+            Path.Combine(global::BepInEx.Paths.GameRootPath, "SPT_Runtime", "SPT_Data", "images"),
             Path.Combine(global::BepInEx.Paths.GameRootPath, "SPT", "SPT_Data"),
             Path.Combine(global::BepInEx.Paths.GameRootPath, "SPT_Data"),
             Path.Combine(global::BepInEx.Paths.GameRootPath, "..", "SPT", "SPT_Data"),
@@ -320,7 +319,6 @@ public class CompassHUD
                 cachedExfils.Clear();
                 cachedTransits.Clear();
                 cachedQuestTriggers.Clear();
-                cachedQuestLoot.Clear();
                 activeMarkers.Clear();
             }
             else if (mainPlayer == null)
@@ -399,7 +397,6 @@ public class CompassHUD
         }
 
         cachedQuestTriggers.Clear();
-        cachedQuestLoot.Clear();
         var triggerTypeCounts = new Dictionary<string, int>();
         if (showQuests.Value)
         {
@@ -411,7 +408,7 @@ public class CompassHUD
                     string typeName = trigger.GetIl2CppType().Name;
                     triggerTypeCounts.TryGetValue(typeName, out int count);
                     triggerTypeCounts[typeName] = count + 1;
-                    if (QuestTriggerTypeNames.Contains(typeName))
+                    if (!string.IsNullOrEmpty(trigger.Id))
                         cachedQuestTriggers.Add(trigger);
                 }
             }
@@ -419,27 +416,25 @@ public class CompassHUD
             {
                 Logger.LogWarning($"Compass HUD failed to scan quest triggers: {ex.Message}");
             }
-
-            try
-            {
-                var questItems = world?.QuestItemsList;
-                foreach (var loot in questItems ?? Enumerable.Empty<LootItem>())
-                {
-                    if (loot != null) cachedQuestLoot.Add(loot);
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning($"Compass HUD failed to read quest items: {ex.Message}");
-            }
         }
 
         markersInitialized = true;
         RefreshActiveTargets();
 
+        int questZoneCount = 0;
+        try
+        {
+            questZoneCount = GetActiveQuestZones().Count;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Compass HUD failed to read active quests: {ex.Message}");
+        }
+
         string triggerSummary = triggerTypeCounts.Count == 0 ? "none" : string.Join(", ", triggerTypeCounts.Select(kv => $"{kv.Key}={kv.Value}"));
-        Logger.LogInfo($"Compass HUD marker scan: ShowQuests={showQuests.Value}, exfils={cachedExfils.Count}, transits={cachedTransits.Count}, " +
-            $"quest triggers kept={cachedQuestTriggers.Count} (all triggers by type: {triggerSummary}), questLoot={cachedQuestLoot.Count}, " +
+        Logger.LogInfo($"Compass HUD marker scan: ShowExtractions={showExtractions.Value}, ShowTransits={showTransits.Value}, ShowQuests={showQuests.Value}, " +
+            $"exfils={cachedExfils.Count}, transits={cachedTransits.Count}, " +
+            $"triggers with ids={cachedQuestTriggers.Count} (by type: {triggerSummary}), active quest zones={questZoneCount}, questLoot={GetQuestLoot().Count}, " +
             $"activeMarkers after filtering: total={activeMarkers.Count}, extraction={activeMarkers.Count(m => m.Type == MarkerType.Extraction)}, " +
             $"transit={activeMarkers.Count(m => m.Type == MarkerType.Transit)}, quest={activeMarkers.Count(m => m.Type == MarkerType.Quest)}");
     }
@@ -503,6 +498,116 @@ public class CompassHUD
 
         string result = string.Join(" ", cleanParts);
         return string.IsNullOrEmpty(result) ? rawName : result;
+    }
+
+    private List<LootItem> GetQuestLoot()
+    {
+        var result = new List<LootItem>();
+        try
+        {
+            var questItems = GetGameWorld()?.QuestItemsList;
+            foreach (var loot in questItems ?? Enumerable.Empty<LootItem>())
+            {
+                if (loot != null) result.Add(loot);
+            }
+        }
+        catch { }
+        return result;
+    }
+
+    // Zone id -> quest name for every unfinished zone objective of the player's started quests.
+    // Trigger ids in the scene only get a marker when a quest currently needs that zone.
+    private Dictionary<string, string> GetActiveQuestZones()
+    {
+        var zones = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var quests = mainPlayer?.Profile?.QuestsData;
+        if (quests == null) return zones;
+
+        foreach (var quest in quests)
+        {
+            if (quest == null || quest.Status != EQuestStatus.Started) continue;
+
+            // One broken quest shouldn't hide the others, or take the whole HUD down with it.
+            try
+            {
+                var template = quest.Template;
+                var conditions = template?.Conditions;
+                if (conditions == null) continue;
+
+                string questName = GetQuestName(template);
+                foreach (var collection in conditions.Values)
+                {
+                    if (collection == null) continue;
+                    foreach (var condition in collection)
+                    {
+                        CollectQuestZones(condition, quest, questName, zones, 0);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!questReadFailureLogged)
+                {
+                    questReadFailureLogged = true;
+                    Logger.LogWarning($"Compass HUD couldn't read objectives of quest {quest.Id}; skipping it (further failures not logged): {ex.Message}");
+                }
+            }
+        }
+
+        return zones;
+    }
+
+    private static void CollectQuestZones(Condition condition, QuestStatusData quest, string questName, Dictionary<string, string> zones, int depth)
+    {
+        if (condition == null || depth > 4) return;
+        if (quest.CompletedConditions != null && quest.CompletedConditions.Contains(condition.id)) return;
+
+        var zone = condition.TryCast<ConditionZone>();
+        if (zone != null)
+        {
+            AddZones(zone.zoneIds, questName, zones);
+            return;
+        }
+
+        var inZone = condition.TryCast<ConditionInZone>();
+        if (inZone != null)
+        {
+            AddZones(inZone.zoneIds, questName, zones);
+            return;
+        }
+
+        if (condition.TryCast<ConditionVisitPlace>() != null || condition.TryCast<ConditionLocationTrigger>() != null)
+        {
+            string target = condition.TryCast<ConditionOneTarget>()?.target;
+            if (!string.IsNullOrEmpty(target)) zones[target] = questName;
+            return;
+        }
+
+        var counter = condition.TryCast<ConditionCounterCreator>();
+        if (counter?.Conditions != null)
+        {
+            foreach (var child in counter.Conditions)
+            {
+                CollectQuestZones(child, quest, questName, zones, depth + 1);
+            }
+        }
+    }
+
+    private static void AddZones(IEnumerable<string> zoneIds, string questName, Dictionary<string, string> zones)
+    {
+        if (zoneIds == null) return;
+        foreach (var id in zoneIds)
+        {
+            if (!string.IsNullOrEmpty(id)) zones[id] = questName;
+        }
+    }
+
+    private static string GetQuestName(QuestTemplate template)
+    {
+        string name = Localize(template.NameLocaleKey);
+        if (!string.IsNullOrEmpty(name) && name != template.NameLocaleKey) return name;
+        if (!string.IsNullOrEmpty(template.Name)) return Localize(template.Name);
+        return "Quest Objective";
     }
 
     private string GetQuestLootItemName(LootItem lootItem)
@@ -657,25 +762,23 @@ public class CompassHUD
 
         if (showQuests.Value)
         {
+            var questZones = GetActiveQuestZones();
             foreach (var trigger in cachedQuestTriggers)
             {
                 if (trigger == null || !trigger.gameObject.activeInHierarchy) continue;
 
                 string zoneId = trigger.Id;
-                if (string.IsNullOrEmpty(zoneId)) continue;
-
-                string localized = Localize(zoneId);
-                if (string.IsNullOrEmpty(localized) || localized == zoneId) continue;
+                if (string.IsNullOrEmpty(zoneId) || !questZones.TryGetValue(zoneId, out string questName)) continue;
 
                 activeMarkers.Add(new MarkerTarget
                 {
                     Position = trigger.transform.position,
                     Type = MarkerType.Quest,
-                    Name = localized
+                    Name = questName
                 });
             }
 
-            foreach (var loot in cachedQuestLoot)
+            foreach (var loot in GetQuestLoot())
             {
                 if (loot == null || !loot.gameObject.activeInHierarchy) continue;
 
