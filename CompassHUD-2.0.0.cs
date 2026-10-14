@@ -16,7 +16,7 @@ using UnityEngine;
 // SPT 5.0 runs EFT 1.0 on IL2CPP, so this is a BepInEx 6 IL2CPP plugin: the plugin itself is a
 // BasePlugin, Unity callbacks come from an injected MonoBehaviour, and all HUD state lives in the
 // plain managed CompassHUD class so none of it has to cross into IL2CPP.
-[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "2.0.1")]
+[BepInPlugin("com.vinarators.compasshud", "Compass HUD", "2.0.2")]
 public class CompassHUDPlugin : BasePlugin
 {
     public override void Load()
@@ -86,11 +86,14 @@ public class CompassHUD
     private float lastMarkerCheckTime;
     private float raidStartTime;
     private float cachedYaw;
+    private float pixelsPerDegree;
+    private float visibleHalfAngle;
 
     private ConfigEntry<bool> enabledCompass;
     private ConfigEntry<bool> showDegrees;
     private ConfigEntry<bool> showLetters;
     private ConfigEntry<float> scale;
+    private ConfigEntry<float> tapeWidth;
     private ConfigEntry<float> opacity;
     private ConfigEntry<int> language;
     private ConfigEntry<KeyCode> toggleKey;
@@ -133,6 +136,7 @@ public class CompassHUD
         showLetters = Config.Bind("General", "Show Letters", true, "Show heading letters on tape");
         language = Config.Bind("General", "Language", 0, "0 = Auto, 1 = English, 2 = Russian");
         scale = Config.Bind("Appearance", "Scale", 1.0f, new ConfigDescription("Compass scale", new AcceptableValueRange<float>(0.25f, 3.0f)));
+        tapeWidth = Config.Bind("Appearance", "Width", 1.0f, new ConfigDescription("Compass width. Wider shows more of the horizon at the same tick spacing; 1.0 = 80 degrees", new AcceptableValueRange<float>(0.4f, 2.5f)));
         opacity = Config.Bind("Appearance", "Opacity", 0.9f, new ConfigDescription("Compass opacity", new AcceptableValueRange<float>(0.0f, 1.0f)));
         toggleKey = Config.Bind("General", "Toggle Hotkey", KeyCode.F8, "Button to toggle compass visibility");
         roundedness = Config.Bind("Appearance", "Roundedness", 1.0f, new ConfigDescription("How strongly the sides fade out for 3D effect", new AcceptableValueRange<float>(0.0f, 10.0f)));
@@ -847,7 +851,10 @@ public class CompassHUD
     private void DrawCompassHUD()
     {
         float centerX = Screen.width / 2f;
-        float width = 900f * scale.Value;
+        // Width widens the visible arc rather than stretching it, and never exceeds the screen.
+        pixelsPerDegree = 900f * scale.Value / 80f;
+        float width = Mathf.Min(900f * scale.Value * tapeWidth.Value, Screen.width - 20f);
+        visibleHalfAngle = width / 2f / pixelsPerDegree;
         bool markersActive = showExtractions.Value || showTransits.Value || showQuests.Value;
         float yOffset = (markersActive ? 4f : 8f) * scale.Value;
         float height = (markersActive ? 75f : 56f) * scale.Value;
@@ -887,7 +894,6 @@ public class CompassHUD
 
         if (mainPlayer != null)
         {
-            float pixelsPerDegree = (width / 80f);
             Vector3 pPos = mainPlayer.Position;
 
             for (int i = 0; i < activeMarkers.Count; i++)
@@ -919,7 +925,7 @@ public class CompassHUD
                 ang = Normalize(ang + 180f);
 
                 float da = Mathf.DeltaAngle(normYaw, ang);
-                if (Mathf.Abs(da) <= 40f)
+                if (Mathf.Abs(da) <= visibleHalfAngle)
                 {
                     bool isCentered = (target == closestCenterTarget && closestDeltaAngle < 3.5f);
                     float finalX = isCentered ? centerX : (centerX + da * pixelsPerDegree);
@@ -968,7 +974,6 @@ public class CompassHUD
         if (mainPlayer != null)
         {
             float halfWidth = width / 2f;
-            float pixelsPerDegree = (width / 80f);
             Vector3 playerPos = mainPlayer.Position;
 
             for (int i = 0; i < activeMarkers.Count; i++)
@@ -985,7 +990,7 @@ public class CompassHUD
 
                 float deltaAngle = Mathf.DeltaAngle(normYaw, angleToTarget);
 
-                if (Mathf.Abs(deltaAngle) > 40f)
+                if (Mathf.Abs(deltaAngle) > visibleHalfAngle)
                     continue;
 
                 bool isCentered = (target == closestCenterTarget && closestDeltaAngle < 3.5f);
@@ -1085,13 +1090,12 @@ public class CompassHUD
     private void DrawCompassLinear(float centerX, float topY, float width, float height, float yaw, float yOffset, bool flip, float tickTopOffset)
     {
         float halfWidth = width / 2f;
-        float pixelsPerDegree = (width / 80f);
 
         for (int angle = 0; angle < 360; angle += 5)
         {
             float relativeAngle = Mathf.DeltaAngle(yaw, angle);
 
-            if (Mathf.Abs(relativeAngle) > 40f)
+            if (Mathf.Abs(relativeAngle) > visibleHalfAngle)
                 continue;
 
             float x = centerX + relativeAngle * pixelsPerDegree;

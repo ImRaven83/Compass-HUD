@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.2 - SPT 5.0
+
+- New Appearance > Width setting (0.4 to 2.5, default 1.0) to make the compass narrower or wider. It changes how much of the horizon is visible (1.0 = 80 degrees) while keeping tick spacing, text and markers the same size, and is capped to the screen width.
+
 ## 2.0.1 - SPT 5.0
 
 - Quest markers now work on 5.0: a quest trigger is shown when one of your started quests has an unfinished objective in that zone (place item / beacon, visit, stay in zone), labelled with the quest name. 2.0.0 relied on zone ids having a translation, which none do in 5.0, so no quest markers appeared.

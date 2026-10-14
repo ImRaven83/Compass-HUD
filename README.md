@@ -29,6 +29,7 @@ To uninstall, delete the `BepInEx/plugins/CompassHUD` folder.
 | General | Show Central Indicator | true | `[ heading ]` box in the middle |
 | General | Language | 0 | 0 = follow game, 1 = English, 2 = Russian |
 | Appearance | Scale / Opacity / Roundedness | 1.0 / 0.9 / 1.0 | |
+| Appearance | Width | 1.0 | 0.4 to 2.5. Wider shows more of the horizon (1.0 = 80 degrees) at the same tick spacing |
 | Appearance | Vertical Position | 0.0 | 0 = top of screen, 1 = bottom |
 | Appearance | Labels Above Tape | false | Use with a bottom position so the tape sits flush to the screen edge |
 | UI Markers | Show Extractions / Show Transits / Show Quests | false | |
@@ -55,7 +56,7 @@ Launch the game once so BepInEx generates `BepInEx/interop`, then:
 
 ```
 dotnet build -c Release -p:GameDir="C:/path/to/SPT"              # bin/Release/CompassHUD.dll
-dotnet build -c Release -p:GameDir="C:/path/to/SPT" -t:Package   # bin/Release/CompassHUD-2.0.1-SPT5.zip
+dotnet build -c Release -p:GameDir="C:/path/to/SPT" -t:Package   # bin/Release/CompassHUD-2.0.2-SPT5.zip
 ```
 
 Requires the .NET 10 SDK.
